@@ -77,7 +77,12 @@ func (a *Agent) StartServer(ctx context.Context) error {
 	if a.IsTransferdRunning() {
 		return nil
 	}
-	return exec.CommandContext(ctx, TransferdBinPath()).Start()
+	transferd := TransferdBinPath()
+	err := exec.CommandContext(ctx, transferd).Start()
+	if err != nil {
+		return fmt.Errorf("failed to start asperatransferd(%s): %v", transferd, err)
+	}
+	return nil
 }
 
 func (a *Agent) IsTransferdRunning() bool {
