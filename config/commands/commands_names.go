@@ -79,6 +79,9 @@ const (
 	// Download Command from S3Manager
 	Download = "download"
 
+	//AsperaDownload
+	AsperaDownload = "aspera-download"
+
 	// GetBucketClass Command
 	GetBucketClass = "get-bucket-class"
 

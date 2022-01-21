@@ -1012,6 +1012,17 @@ var (
 		Action:    functions.Download,
 	}
 
+	CommandAsperaDownload = cli.Command{
+		Name:        AsperaDownload,
+		Description: T("Download objects via Aspera"),
+		Flags: []cli.Flag{
+			flags.FlagBucket,
+			flags.FlagKey,
+		},
+		ArgsUsage: "[OUTFILE]",
+		Action:    functions.AsperaDownload,
+	}
+
 	// CommandUpload - Upload objects concurrently using S3 Transfer Manager
 	// command:
 	//	 ibmcloud cos upload
