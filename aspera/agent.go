@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -171,10 +172,27 @@ func (a *Agent) GetAsperaTransferSpec(action string, bucket string, paths []Path
 	if err != nil {
 		return "", fmt.Errorf("failed to send request to %s: %v", url, err)
 	}
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP Error: %v : %s", res.StatusCode, res.Request.URL)
+	}
+
 	defer res.Body.Close()
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return "", err
+	}
+
+	type reqErr struct {
+		Code    int    `json:"code,omitempty"`
+		Reason  string `json:"reason,omitempty"`
+		Message string `json:"user_message,omitempty"`
+	}
+
+	if matched, _ := regexp.Match(`"error":`, body); matched {
+		var e reqErr
+		if err := json.Unmarshal(body, &e); err != nil {
+			return "", fmt.Errorf("request error: %d: %s", e.Code, e.Message)
+		}
 	}
 
 	specs := map[string][]map[string]map[string]interface{}{
@@ -190,7 +208,7 @@ func (a *Agent) GetAsperaTransferSpec(action string, bucket string, paths []Path
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal spec: %s", err)
 	}
-	fmt.Println(string(spec))
+	log.Println(string(spec))
 	return string(spec), nil
 }
 
