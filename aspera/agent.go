@@ -17,14 +17,14 @@ import (
 
 	"github.com/IBM/ibm-cos-sdk-go/aws/request"
 	"github.com/IBM/ibm-cos-sdk-go/service/s3"
-	"github.com/IBM/ibmcloud-cos-cli/aspera/transfersdk"
+	sdk "github.com/IBM/ibmcloud-cos-cli/aspera/transfersdk"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
-	defaultAddress string = "127.0.0.1"
-	defaultPort    string = "55002"
+	defaultAddress = "127.0.0.1"
+	defaultPort    = "55002"
 )
 
 type AccessKey struct {
@@ -39,20 +39,21 @@ type BucketAsperaInfo struct {
 }
 
 type Agent struct {
-	transfersdk.TransferServiceClient
-	s3 *s3.S3
+	sdk.TransferServiceClient
+	s3     *s3.S3
+	apikey string
 }
 
-func New(s3 *s3.S3) (*Agent, error) {
+func New(s3 *s3.S3, apikey string) (*Agent, error) {
 	optInsecure := grpc.WithTransportCredentials(insecure.NewCredentials())
 	target := fmt.Sprintf("%s:%s", defaultAddress, defaultPort)
 	cc, err := grpc.Dial(target, optInsecure)
 	if err != nil {
 		return nil, err
 	}
-	client := transfersdk.NewTransferServiceClient(cc)
+	client := sdk.NewTransferServiceClient(cc)
 
-	return &Agent{client, s3}, nil
+	return &Agent{client, s3, apikey}, nil
 }
 
 func SDKDir() string {
@@ -87,7 +88,7 @@ func (a *Agent) StartServer(ctx context.Context) error {
 }
 
 func (a *Agent) IsTransferdRunning() bool {
-	if _, err := a.GetInfo(context.Background(), &transfersdk.InstanceInfoRequest{}); err != nil {
+	if _, err := a.GetInfo(context.Background(), &sdk.InstanceInfoRequest{}); err != nil {
 		return false
 	}
 	return true
@@ -108,22 +109,54 @@ func (a *Agent) GetBucketAspera(bucket string) (*BucketAsperaInfo, error) {
 	return output, nil
 }
 
-func (a *Agent) GetICOSSpec(bucket string) *transfersdk.ICOSSpec {
-	ICOSSpec := &transfersdk.ICOSSpec{
-		ApiKey:               "",
-		Bucket:               "",
-		IbmServiceInstanceId: "",
-		IbmServiceEndpoint:   "",
+func (a *Agent) GetICOSSpec(bucket string) *sdk.ICOSSpec {
+	creds, _ := a.s3.Config.Credentials.Get()
+	ICOSSpec := &sdk.ICOSSpec{
+		ApiKey:               a.apikey,
+		Bucket:               bucket,
+		IbmServiceInstanceId: creds.ServiceInstanceID,
+		IbmServiceEndpoint:   a.s3.Endpoint,
 	}
 	return ICOSSpec
 }
 
-type Path struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
+func (a *Agent) GetAsperaTransferSpecV2(action string, bucket string, paths []*sdk.Path) (spec string, err error) {
+
+	ICOSSpec := a.GetICOSSpec(bucket)
+	direction := "recv"
+	if action == "upload" {
+		direction = "send"
+	}
+
+	var meta *BucketAsperaInfo
+	if meta, err = a.GetBucketAspera(bucket); err != nil {
+		return
+	}
+
+	transferSpec := &sdk.TransferSpecV2{
+		SessionInitiation: &sdk.Initiation{
+			Icos: ICOSSpec,
+		},
+		Direction: direction,
+		Assets: &sdk.Assets{
+			// The definition in the original proto is Path, not Paths
+			// TODO: fire a bug to aspera team
+			Paths: paths,
+		},
+		RemoteHost: *meta.ATSEndpoint,
+		Title:      "IBMCloud COS CLI",
+	}
+
+	data, err := json.Marshal(transferSpec)
+	if err != nil {
+		return "", fmt.Errorf("unable to marchal transferspecv2: %s", err)
+	}
+
+	spec = string(data)
+	return
 }
 
-func (a *Agent) GetAsperaTransferSpec(action string, bucket string, paths []Path) (string, error) {
+func (a *Agent) GetAsperaTransferSpecV1(action string, bucket string, paths []*sdk.Path) (spec string, err error) {
 	meta, err := a.GetBucketAspera(bucket)
 	if err != nil {
 		return "", fmt.Errorf("unable to get aspera metadata: %s", err)
@@ -140,6 +173,9 @@ func (a *Agent) GetAsperaTransferSpec(action string, bucket string, paths []Path
 	}
 	jsonPaths := string(j)
 
+	// The type of `tags` in the original proto file is string
+	// so I can't use TransferSpecV1 struct directly.
+	// TODO: fire a bug to aspera team
 	data := fmt.Sprintf(`{
 		"transfer_requests": [
 		  {
@@ -201,58 +237,75 @@ func (a *Agent) GetAsperaTransferSpec(action string, bucket string, paths []Path
 		},
 	}
 	if err := json.Unmarshal(body, &specs); err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %s\n %s", err, string(body))
+		return "", fmt.Errorf("failed to unmarshal transferspecs: %s: %s", err, string(body))
 	}
 	spec_map := specs["transfer_specs"][0]["transfer_spec"]
-	spec, err := json.Marshal(spec_map)
+	j, err = json.Marshal(spec_map)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal spec: %s", err)
 	}
-	log.Println(string(spec))
-	return string(spec), nil
+	spec = string(j)
+	return
 }
 
-func (a *Agent) COSDownload(bucket string, key string, localPath string) error {
-	return nil
+func (a *Agent) Download(ctx context.Context, bucket string, key string, localPath string) (err error) {
+	return a.DoTransfer(ctx, "download", bucket, key, localPath)
 }
 
-func (a *Agent) COSUpload(localPath string, bucket string, key string) error {
-	return nil
+func (a *Agent) Upload(localPath string, bucket string, key string) (err error) {
+	return
 }
 
-func (a *Agent) DoCOSTransfer(ctx context.Context, bucket string, action string, key string, localPath string) error {
-	err := a.StartServer(context.TODO())
-	if err != nil {
-		return err
+func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, key string, localPath string) (err error) {
+	rpcCtx := context.TODO()
+	if err = a.StartServer(rpcCtx); err != nil {
+		return
 	}
 
-	p := Path{key, localPath}
-	//transferType := transfersdk.TransferType_FILE_TO_STREAM_DOWNLOAD
+	p := &sdk.Path{Source: key, Destination: localPath}
 	if action == "upload" {
-		p = Path{localPath, key}
-		//transferType = transfersdk.TransferType_STREAM_TO_FILE_UPLOAD
+		p = &sdk.Path{Source: localPath, Destination: key}
 	}
 
-	transferSpec, err := a.GetAsperaTransferSpec(action, bucket, []Path{p})
+	transferSpec, err := a.GetAsperaTransferSpecV2(action, bucket, []*sdk.Path{p})
 	if err != nil {
-		return err
+		return
 	}
 
-	req := &transfersdk.TransferRequest{
+	req := &sdk.TransferRequest{
 		TransferSpec: transferSpec,
-		Config: &transfersdk.TransferConfig{
-			Retry: &transfersdk.RetryStrategy{},
+		Config: &sdk.TransferConfig{
+			Retry: &sdk.RetryStrategy{},
 		},
-		TransferType: transfersdk.TransferType_FILE_REGULAR,
+		TransferType: sdk.TransferType_FILE_REGULAR,
 	}
-	steam, err := a.StartTransferWithMonitor(ctx, req)
+	transferResp, err := a.StartTransfer(ctx, req)
 	if err != nil {
-		return err
+		return
+	}
+	transferId := transferResp.GetTransferId()
+
+	// This only can cancel the transfer that already started
+	// It can't cancel the transfer request (should also be a design flaw...)
+	// TODO: Ask aspera team if they can support cancel transfer request
+	go func() {
+		<-ctx.Done()
+		stop := &sdk.StopTransferRequest{TransferId: []string{transferId}}
+		if _, err := a.StopTransfer(rpcCtx, stop); err != nil {
+			log.Println("failed to stop transfer:", err)
+		}
+	}()
+
+	stream, err := a.MonitorTransfers(rpcCtx, &sdk.RegistrationRequest{TransferId: []string{transferId}})
+	if err != nil {
+		return
 	}
 
-	started := false
+	// stream, err := a.StartTransferWithMonitor(ctx, req)
+
+	var started bool
 	for {
-		resp, err := steam.Recv()
+		resp, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
@@ -260,22 +313,28 @@ func (a *Agent) DoCOSTransfer(ctx context.Context, bucket string, action string,
 			return err
 		}
 		switch resp.Status {
-		case transfersdk.TransferStatus_RUNNING:
-			if !started && resp.SessionInfo.BytesTransferred != 0 {
-				log.Println("Begin transfer")
+		case sdk.TransferStatus_QUEUED:
+			log.Printf("task %s queued", resp.TransferId)
+		case sdk.TransferStatus_RUNNING:
+			if !started && resp.TransferInfo.BytesTransferred == 0 {
+				log.Printf("task %s started", resp.TransferId)
 				started = true
-			} else if started {
-				log.Printf("Transfered: %d", resp.SessionInfo.BytesTransferred)
+			} else {
+				log.Printf("transfered: %d", resp.TransferInfo.BytesTransferred)
 			}
-		case transfersdk.TransferStatus_FAILED, transfersdk.TransferStatus_CANCELED:
-			log.Println("Failed")
-		case transfersdk.TransferStatus_COMPLETED:
-			log.Println("Finished")
-		default:
-			log.Println("Unknown")
+		case sdk.TransferStatus_FAILED, sdk.TransferStatus_CANCELED:
+			log.Println("failed or cancelled")
+			return fmt.Errorf("transfer failed or cancelled")
+		case sdk.TransferStatus_COMPLETED:
+			log.Println("finished")
+			// MonitorTransfers doesn't works like StartTransferWithMonitor,
+			// the response it returns doesn't emit EOF...
+			// so the loop will block infinitely even the transfer's finished.
+			// I have to return here explicitly.
+			// TODO: Ask Aspera team if this is a bug
+			return nil
 		}
 	}
 
-	return nil
-
+	return
 }
