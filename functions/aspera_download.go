@@ -2,7 +2,11 @@ package functions
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/signal"
 
+	sdk "github.com/IBM-Cloud/ibm-cloud-cli-sdk/bluemix"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
 	"github.com/IBM/ibm-cos-sdk-go/service/s3"
 	"github.com/IBM/ibmcloud-cos-cli/aspera"
@@ -21,6 +25,12 @@ func AsperaDownload(c *cli.Context) (err error) {
 			CLIContext: c,
 			Cause:      errors.InvalidNArg,
 		}
+		return
+	}
+
+	APIKeyEnv := sdk.EnvAPIKey.Get()
+	if APIKeyEnv == "" {
+		err = fmt.Errorf("missing IBMCLOUD_API_KEY Environment Variable")
 		return
 	}
 
@@ -75,16 +85,25 @@ func AsperaDownload(c *cli.Context) (err error) {
 	if region, err = cosContext.GetCurrentRegion(""); err != nil {
 		return
 	}
-	serviceEndpoint, err := cosContext.GetServiceEndpoint()
-	if err != nil {
+
+	var serviceEndpoint string
+	if serviceEndpoint, err = cosContext.GetServiceEndpoint(); err != nil {
 		return
 	}
 
 	cfg := new(aws.Config).WithRegion(region).WithEndpoint(serviceEndpoint)
 	sess := cosContext.Session.Copy(cfg)
 	client := s3.New(sess)
-	asp, _ := aspera.New(client)
+	asp, _ := aspera.New(client, APIKeyEnv)
 
-	ctx := context.Background()
-	return asp.DoCOSTransfer(ctx, aws.StringValue(input.Bucket), "download", aws.StringValue(input.Key), dstPath)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer stop()
+
+	if err = asp.Download(ctx, aws.StringValue(input.Bucket), aws.StringValue(input.Key), dstPath); err != nil {
+		return
+	}
+
+	keepFile = true
+
+	return
 }
