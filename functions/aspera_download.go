@@ -72,14 +72,7 @@ func AsperaDownload(c *cli.Context) (err error) {
 		return
 	}
 
-	// Validate Download Location
-	var file utils.WriteCloser
-	if dstPath, file, err = getAndValidateDownloadPath(cosContext, c.Args().First(),
-		aws.StringValue(input.Key)); err != nil || file == nil {
-		return
-	}
-
-	defer file.Close()
+	dstPath = c.Args().First()
 
 	var region string
 	if region, err = cosContext.GetCurrentRegion(""); err != nil {

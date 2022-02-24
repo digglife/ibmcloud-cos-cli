@@ -140,8 +140,9 @@ func (a *Agent) GetAsperaTransferSpecV2(action string, bucket string, paths []*s
 		Direction: direction,
 		Assets: &sdk.Assets{
 			// The definition in the original proto is Path, not Paths
-			// TODO: fire a bug to aspera team
-			Paths: paths,
+			// Reported to Aspera Team
+			Paths:           paths,
+			DestinationRoot: "/",
 		},
 		RemoteHost: *meta.ATSEndpoint,
 		Title:      "IBMCloud COS CLI",
@@ -175,7 +176,7 @@ func (a *Agent) GetAsperaTransferSpecV1(action string, bucket string, paths []*s
 
 	// The type of `tags` in the original proto file is string
 	// so I can't use TransferSpecV1 struct directly.
-	// TODO: fire a bug to aspera team
+	// Reported to Aspera team
 	data := fmt.Sprintf(`{
 		"transfer_requests": [
 		  {
@@ -252,8 +253,8 @@ func (a *Agent) Download(ctx context.Context, bucket string, key string, localPa
 	return a.DoTransfer(ctx, "download", bucket, key, localPath)
 }
 
-func (a *Agent) Upload(localPath string, bucket string, key string) (err error) {
-	return
+func (a *Agent) Upload(ctx context.Context, localPath string, bucket string, key string) (err error) {
+	return a.DoTransfer(ctx, "upload", bucket, key, localPath)
 }
 
 func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, key string, localPath string) (err error) {
@@ -324,14 +325,13 @@ func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, ke
 			}
 		case sdk.TransferStatus_FAILED, sdk.TransferStatus_CANCELED:
 			log.Println("failed or cancelled")
-			return fmt.Errorf("transfer failed or cancelled")
+			return fmt.Errorf("transfer %s: %s", resp.Status, resp.Error.GetDescription())
 		case sdk.TransferStatus_COMPLETED:
 			log.Println("finished")
 			// MonitorTransfers doesn't works like StartTransferWithMonitor,
-			// the response it returns doesn't emit EOF...
+			// the response it returns doesn't emit EOF because of multiple transfers
 			// so the loop will block infinitely even the transfer's finished.
 			// I have to return here explicitly.
-			// TODO: Ask Aspera team if this is a bug
 			return nil
 		}
 	}
