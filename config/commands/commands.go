@@ -1052,6 +1052,17 @@ var (
 		Action: functions.Upload,
 	}
 
+	CommandAsperaUpload = cli.Command{
+		Name:        AsperaUpload,
+		Description: T("Upload objects via Aspera"),
+		Flags: []cli.Flag{
+			flags.FlagBucket,
+			flags.FlagKey,
+		},
+		ArgsUsage: "[OUTFILE]",
+		Action:    functions.AsperaUpload,
+	}
+
 	// CommandWait - Wait until a particular condition is satisfied.
 	// command:
 	//	 ibmcloud cos wait

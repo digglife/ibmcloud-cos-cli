@@ -94,8 +94,9 @@ func NewApp(name string) *cli.App {
 		// Other commands
 		commands.CommandConfig,
 		commands.CommandDownload,
-		commands.CommandAsperaDownload,
 		commands.CommandUpload,
+		commands.CommandAsperaDownload,
+		commands.CommandAsperaUpload,
 		commands.CommandWait,
 	}
 

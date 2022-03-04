@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 
 	sdk "github.com/IBM-Cloud/ibm-cloud-cli-sdk/bluemix"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
@@ -18,7 +17,7 @@ import (
 	"github.com/urfave/cli"
 )
 
-func AsperaDownload(c *cli.Context) (err error) {
+func AsperaUpload(c *cli.Context) (err error) {
 
 	// check the number of arguments
 	if c.NArg() > 1 {
@@ -41,19 +40,6 @@ func AsperaDownload(c *cli.Context) (err error) {
 		return
 	}
 
-	// Monitor the file
-	keepFile := false
-
-	// Download location
-	var dstPath string
-
-	// In case of error removes incomplete downloads
-	defer func() {
-		if !keepFile && dstPath != "" {
-			cosContext.Remove(dstPath)
-		}
-	}()
-
 	// Build GetObjectInput
 	input := new(s3.GetObjectInput)
 
@@ -73,16 +59,11 @@ func AsperaDownload(c *cli.Context) (err error) {
 		return
 	}
 
-	dstPath = c.Args().First()
+	dstPath := c.Args().First()
 
-	if dstPath == "" {
-		// For consistence with the behavior of download command,
-		// although IMHO the destination should be the current working directory.
-		var downloadLocation string
-		if downloadLocation, err = cosContext.GetDownloadLocation(); err != nil {
-			return
-		}
-		dstPath = filepath.Join(downloadLocation, filepath.Base(aws.StringValue(input.Key)))
+	if _, err = os.Stat(dstPath); os.IsNotExist(err) {
+		err = fmt.Errorf("%s: %s", err, dstPath)
+		return
 	}
 
 	var region string
@@ -103,11 +84,9 @@ func AsperaDownload(c *cli.Context) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer stop()
 
-	if err = asp.Download(ctx, aws.StringValue(input.Bucket), aws.StringValue(input.Key), dstPath); err != nil {
+	if err = asp.Upload(ctx, aws.StringValue(input.Bucket), dstPath, aws.StringValue(input.Key)); err != nil {
 		return
 	}
-
-	keepFile = true
 
 	return
 }

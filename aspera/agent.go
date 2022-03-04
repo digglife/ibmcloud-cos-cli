@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -253,7 +254,14 @@ func (a *Agent) Download(ctx context.Context, bucket string, key string, localPa
 	return a.DoTransfer(ctx, "download", bucket, key, localPath)
 }
 
-func (a *Agent) Upload(ctx context.Context, localPath string, bucket string, key string) (err error) {
+func (a *Agent) Upload(ctx context.Context, bucket string, localPath string, key string) (err error) {
+	// When uploading directory, the local path can't be relative path.
+	// Transferd will raise no such file or directory error.
+	// This should be a bug of transferd because there is no such problem with faspmanager2 backend.
+	localPath, err = filepath.Abs(localPath)
+	if err != nil {
+		return
+	}
 	return a.DoTransfer(ctx, "upload", bucket, key, localPath)
 }
 
@@ -325,7 +333,7 @@ func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, ke
 			}
 		case sdk.TransferStatus_FAILED, sdk.TransferStatus_CANCELED:
 			log.Println("failed or cancelled")
-			return fmt.Errorf("transfer %s: %s", resp.Status, resp.Error.GetDescription())
+			return fmt.Errorf("transfer %s: %s", resp.Status, strings.TrimSpace(resp.TransferInfo.GetErrorDescription()))
 		case sdk.TransferStatus_COMPLETED:
 			log.Println("finished")
 			// MonitorTransfers doesn't works like StartTransferWithMonitor,
