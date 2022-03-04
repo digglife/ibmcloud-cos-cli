@@ -41,8 +41,9 @@ type BucketAsperaInfo struct {
 
 type Agent struct {
 	sdk.TransferServiceClient
-	s3     *s3.S3
-	apikey string
+	s3         *s3.S3
+	apikey     string
+	subscriber Subscriber
 }
 
 func New(s3 *s3.S3, apikey string) (*Agent, error) {
@@ -54,7 +55,12 @@ func New(s3 *s3.S3, apikey string) (*Agent, error) {
 	}
 	client := sdk.NewTransferServiceClient(cc)
 
-	return &Agent{client, s3, apikey}, nil
+	return &Agent{client, s3, apikey, &DefaultSubscriber{}}, nil
+}
+
+func (a *Agent) WithSubscriber(sub Subscriber) *Agent {
+	a.subscriber = sub
+	return a
 }
 
 func SDKDir() string {
@@ -312,7 +318,6 @@ func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, ke
 
 	// stream, err := a.StartTransferWithMonitor(ctx, req)
 
-	var started bool
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
@@ -323,19 +328,13 @@ func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, ke
 		}
 		switch resp.Status {
 		case sdk.TransferStatus_QUEUED:
-			log.Printf("task %s queued", resp.TransferId)
+			a.subscriber.Queued(resp)
 		case sdk.TransferStatus_RUNNING:
-			if !started && resp.TransferInfo.BytesTransferred == 0 {
-				log.Printf("task %s started", resp.TransferId)
-				started = true
-			} else {
-				log.Printf("transfered: %d", resp.TransferInfo.BytesTransferred)
-			}
+			a.subscriber.Running(resp)
 		case sdk.TransferStatus_FAILED, sdk.TransferStatus_CANCELED:
-			log.Println("failed or cancelled")
 			return fmt.Errorf("transfer %s: %s", resp.Status, strings.TrimSpace(resp.TransferInfo.GetErrorDescription()))
 		case sdk.TransferStatus_COMPLETED:
-			log.Println("finished")
+			a.subscriber.Done(resp)
 			// MonitorTransfers doesn't works like StartTransferWithMonitor,
 			// the response it returns doesn't emit EOF because of multiple transfers
 			// so the loop will block infinitely even the transfer's finished.
