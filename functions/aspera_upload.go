@@ -59,10 +59,10 @@ func AsperaUpload(c *cli.Context) (err error) {
 		return
 	}
 
-	dstPath := c.Args().First()
+	srcPath := c.Args().First()
 
-	if _, err = os.Stat(dstPath); os.IsNotExist(err) {
-		err = fmt.Errorf("%s: %s", err, dstPath)
+	if _, err = os.Stat(srcPath); os.IsNotExist(err) {
+		err = fmt.Errorf("%s: %s", err, srcPath)
 		return
 	}
 
@@ -84,7 +84,13 @@ func AsperaUpload(c *cli.Context) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer stop()
 
-	if err = asp.Upload(ctx, aws.StringValue(input.Bucket), dstPath, aws.StringValue(input.Key)); err != nil {
+	transferInput := &aspera.TransferInput{
+		Bucket: aws.StringValue(input.Bucket),
+		Key:    aws.StringValue(input.Key),
+		Path:   srcPath,
+	}
+
+	if err = asp.Upload(ctx, transferInput); err != nil {
 		return
 	}
 

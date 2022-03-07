@@ -41,9 +41,8 @@ type BucketAsperaInfo struct {
 
 type Agent struct {
 	sdk.TransferServiceClient
-	s3         *s3.S3
-	apikey     string
-	subscriber Subscriber
+	s3     *s3.S3
+	apikey string
 }
 
 func New(s3 *s3.S3, apikey string) (*Agent, error) {
@@ -55,12 +54,7 @@ func New(s3 *s3.S3, apikey string) (*Agent, error) {
 	}
 	client := sdk.NewTransferServiceClient(cc)
 
-	return &Agent{client, s3, apikey, &DefaultSubscriber{}}, nil
-}
-
-func (a *Agent) WithSubscriber(sub Subscriber) *Agent {
-	a.subscriber = sub
-	return a
+	return &Agent{client, s3, apikey}, nil
 }
 
 func SDKDir() string {
@@ -256,33 +250,40 @@ func (a *Agent) GetAsperaTransferSpecV1(action string, bucket string, paths []*s
 	return
 }
 
-func (a *Agent) Download(ctx context.Context, bucket string, key string, localPath string) (err error) {
-	return a.DoTransfer(ctx, "download", bucket, key, localPath)
+type TransferInput struct {
+	Bucket string
+	Key    string
+	Path   string
+	Sub    Subscriber
 }
 
-func (a *Agent) Upload(ctx context.Context, bucket string, localPath string, key string) (err error) {
+func (a *Agent) Download(ctx context.Context, input *TransferInput) (err error) {
+	return a.doTransfer(ctx, "download", input)
+}
+
+func (a *Agent) Upload(ctx context.Context, input *TransferInput) (err error) {
 	// When uploading directory, the local path can't be relative path.
 	// Transferd will raise no such file or directory error.
 	// This should be a bug of transferd because there is no such problem with faspmanager2 backend.
-	localPath, err = filepath.Abs(localPath)
-	if err != nil {
-		return
+	var absPath string
+	if absPath, err = filepath.Abs(input.Path); err == nil {
+		input.Path = absPath
 	}
-	return a.DoTransfer(ctx, "upload", bucket, key, localPath)
+	return a.doTransfer(ctx, "upload", input)
 }
 
-func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, key string, localPath string) (err error) {
+func (a *Agent) doTransfer(ctx context.Context, action string, input *TransferInput) (err error) {
 	rpcCtx := context.TODO()
 	if err = a.StartServer(rpcCtx); err != nil {
 		return
 	}
 
-	p := &sdk.Path{Source: key, Destination: localPath}
+	p := &sdk.Path{Source: input.Key, Destination: input.Path}
 	if action == "upload" {
-		p = &sdk.Path{Source: localPath, Destination: key}
+		p = &sdk.Path{Source: input.Path, Destination: input.Key}
 	}
 
-	transferSpec, err := a.GetAsperaTransferSpecV2(action, bucket, []*sdk.Path{p})
+	transferSpec, err := a.GetAsperaTransferSpecV2(action, input.Bucket, []*sdk.Path{p})
 	if err != nil {
 		return
 	}
@@ -317,7 +318,9 @@ func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, ke
 	}
 
 	// stream, err := a.StartTransferWithMonitor(ctx, req)
-
+	if input.Sub == nil {
+		input.Sub = &DefaultSubscriber{}
+	}
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
@@ -328,13 +331,14 @@ func (a *Agent) DoTransfer(ctx context.Context, action string, bucket string, ke
 		}
 		switch resp.Status {
 		case sdk.TransferStatus_QUEUED:
-			a.subscriber.Queued(resp)
+			input.Sub.Queued(resp)
 		case sdk.TransferStatus_RUNNING:
-			a.subscriber.Running(resp)
+			input.Sub.Running(resp)
 		case sdk.TransferStatus_FAILED, sdk.TransferStatus_CANCELED:
-			return fmt.Errorf("transfer %s: %s", resp.Status, strings.TrimSpace(resp.TransferInfo.GetErrorDescription()))
+			description := strings.TrimSpace(resp.TransferInfo.GetErrorDescription())
+			return fmt.Errorf("transfer %s: %s", resp.Status, description)
 		case sdk.TransferStatus_COMPLETED:
-			a.subscriber.Done(resp)
+			input.Sub.Done(resp)
 			// MonitorTransfers doesn't works like StartTransferWithMonitor,
 			// the response it returns doesn't emit EOF because of multiple transfers
 			// so the loop will block infinitely even the transfer's finished.

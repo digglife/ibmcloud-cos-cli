@@ -103,7 +103,13 @@ func AsperaDownload(c *cli.Context) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer stop()
 
-	if err = asp.Download(ctx, aws.StringValue(input.Bucket), aws.StringValue(input.Key), dstPath); err != nil {
+	transferInput := &aspera.TransferInput{
+		Bucket: aws.StringValue(input.Bucket),
+		Key:    aws.StringValue(input.Key),
+		Path:   dstPath,
+	}
+
+	if err = asp.Download(ctx, transferInput); err != nil {
 		return
 	}
 

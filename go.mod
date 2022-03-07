@@ -20,4 +20,5 @@ require (
 	github.com/urfave/cli v1.22.4
 	google.golang.org/grpc v1.43.0
 	google.golang.org/protobuf v1.27.1
+	gopkg.in/cheggaaa/pb.v1 v1.0.28
 )
