@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 
 	sdk "github.com/IBM-Cloud/ibm-cloud-cli-sdk/bluemix"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
@@ -84,10 +85,13 @@ func AsperaUpload(c *cli.Context) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer stop()
 
+	var size int64
+	size, err = GetLocalTotalSize(srcPath)
 	transferInput := &aspera.TransferInput{
 		Bucket: aws.StringValue(input.Bucket),
 		Key:    aws.StringValue(input.Key),
 		Path:   srcPath,
+		Sub:    aspera.NewProgressBarSubscriber(size, cosContext.UI.Writer()),
 	}
 
 	if err = asp.Upload(ctx, transferInput); err != nil {
@@ -95,4 +99,18 @@ func AsperaUpload(c *cli.Context) (err error) {
 	}
 
 	return
+}
+
+func GetLocalTotalSize(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return err
+	})
+	return size, err
 }

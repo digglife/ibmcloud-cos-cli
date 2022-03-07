@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	sdk "github.com/IBM-Cloud/ibm-cloud-cli-sdk/bluemix"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
@@ -103,10 +104,15 @@ func AsperaDownload(c *cli.Context) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer stop()
 
+	var size int64
+	if size, err = GetTotalSize(client, input); err != nil {
+		return
+	}
 	transferInput := &aspera.TransferInput{
 		Bucket: aws.StringValue(input.Bucket),
 		Key:    aws.StringValue(input.Key),
 		Path:   dstPath,
+		Sub:    aspera.NewProgressBarSubscriber(size, cosContext.UI.Writer()),
 	}
 
 	if err = asp.Download(ctx, transferInput); err != nil {
@@ -115,5 +121,47 @@ func AsperaDownload(c *cli.Context) (err error) {
 
 	keepFile = true
 
+	return
+}
+
+func GetTotalSize(s3 *s3.S3, input *s3.GetObjectInput) (size int64, err error) {
+	if strings.HasSuffix(aws.StringValue(input.Key), "/") {
+		return GetDirectoryObjectSize(s3, input)
+	}
+	return GetObjectSize(s3, input)
+}
+
+func GetDirectoryObjectSize(s *s3.S3, input *s3.GetObjectInput) (size int64, err error) {
+	pageIterInput := &s3.ListObjectsInput{
+		Bucket: input.Bucket,
+		Prefix: input.Key,
+	}
+
+	var objectContents []*s3.Object
+	err = s.ListObjectsPages(pageIterInput, func(p *s3.ListObjectsOutput, _ bool) bool {
+		objectContents = append(objectContents, p.Contents...)
+		return true
+	})
+	if err != nil {
+		return
+	}
+
+	if len(objectContents) == 0 {
+		return 0, fmt.Errorf("no such directory: %s", aws.StringValue(input.Key))
+	}
+
+	for _, object := range objectContents {
+		size += aws.Int64Value(object.Size)
+	}
+
+	return
+}
+
+func GetObjectSize(s *s3.S3, input *s3.GetObjectInput) (size int64, err error) {
+	output, err := s.GetObject(input)
+	if err != nil {
+		return
+	}
+	size = aws.Int64Value(output.ContentLength)
 	return
 }

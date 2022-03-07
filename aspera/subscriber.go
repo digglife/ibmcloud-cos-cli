@@ -2,7 +2,6 @@ package aspera
 
 import (
 	"io"
-	"log"
 
 	sdk "github.com/IBM/ibmcloud-cos-cli/aspera/transfersdk"
 	"gopkg.in/cheggaaa/pb.v1"
@@ -16,24 +15,17 @@ type Subscriber interface {
 
 type DefaultSubscriber struct{}
 
-func (b *DefaultSubscriber) Queued(resp *sdk.TransferResponse) {
-	log.Printf("task %s queued", resp.TransferId)
-}
-
-func (b *DefaultSubscriber) Running(resp *sdk.TransferResponse) {
-	log.Printf("transfered: %d", resp.TransferInfo.BytesTransferred)
-}
-
-func (b *DefaultSubscriber) Done(resp *sdk.TransferResponse) {
-	log.Printf("task %s done", resp.TransferId)
-}
+// Do Nothing by default
+func (b *DefaultSubscriber) Queued(resp *sdk.TransferResponse)  {}
+func (b *DefaultSubscriber) Running(resp *sdk.TransferResponse) {}
+func (b *DefaultSubscriber) Done(resp *sdk.TransferResponse)    {}
 
 type ProgressBarSubscriber struct {
 	bar *pb.ProgressBar
 }
 
-func NewProgressBarSubscriber(total int, out io.Writer) *ProgressBarSubscriber {
-	bar := pb.New(total).SetUnits(pb.U_BYTES)
+func NewProgressBarSubscriber(total int64, out io.Writer) *ProgressBarSubscriber {
+	bar := pb.New64(total).SetUnits(pb.U_BYTES)
 	bar.Output = out
 	return &ProgressBarSubscriber{bar: bar}
 }
