@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	sdk "github.com/IBM-Cloud/ibm-cloud-cli-sdk/bluemix"
 	"github.com/IBM-Cloud/ibm-cloud-cli-sdk/common/downloader"
+	"github.com/IBM-Cloud/ibm-cloud-cli-sdk/common/file_helpers"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
 	"github.com/IBM/ibm-cos-sdk-go/service/s3"
 	"github.com/IBM/ibmcloud-cos-cli/aspera"
@@ -42,6 +45,13 @@ func AsperaDownload(c *cli.Context) (err error) {
 	var cosContext *utils.CosContext
 	if cosContext, err = GetCosContext(c); err != nil {
 		return
+	}
+
+	if !file_helpers.FileExists(aspera.TransferdBinPath()) {
+		cosContext.UI.Warn("Aspera Transferd binary not found. Downloading...")
+		if err = DownloadSDK(cosContext); err != nil {
+			return
+		}
 	}
 
 	// Monitor the file
@@ -168,24 +178,39 @@ func GetObjectSize(s *s3.S3, input *s3.GetObjectInput) (size int64, err error) {
 	return
 }
 
-func DownloadSDK(c *cli.Context) (err error) {
-	downloadURL, err := aspera.GetSDKDownloadURL()
+func DownloadSDK(c *utils.CosContext) (err error) {
+	downloadURL, platform, err := aspera.GetSDKDownloadURL()
 	if err != nil {
 		return
 	}
 
-	tempDir, err := ioutil.CreatetempDir()
+	tempDir, err := ioutil.TempDir("", "AsperaSDKDownload")
 	if err != nil {
 		return fmt.Errorf("unable to create temp directory for downloading Aspera SDK: %s", err)
 	}
 	SDKDownloader := downloader.New(tempDir)
+	SDKDownloader.ProxyReader = downloader.NewProgressBar(c.UI.Writer())
 	defer SDKDownloader.RemoveDir()
 
-	dstPath, _, err := SDKDownloader.Download(downloadURL)
+	pkgPath, _, err := SDKDownloader.Download(downloadURL)
 	if err != nil {
 		return fmt.Errorf("unable to download Aspera SDK: %s", err)
 	}
 
-	
+	extractCmd := exec.Command("tar", "-xf", pkgPath, "-C", tempDir)
+	if runtime.GOOS == "windows" {
+		// built-in command for Windows 10: https://ibm.biz/Bdf7e
+		// TODO: write a unzip functin with stdlib
+		exec.Command("Expand-Archive", "-Path", pkgPath, "-DestinationPath", tempDir)
+	}
 
+	if err = extractCmd.Run(); err != nil {
+		return fmt.Errorf("unable to extract %s: %s", pkgPath, err)
+	}
+
+	baseFolder := filepath.Join(tempDir, platform)
+	if err = file_helpers.CopyDir(baseFolder, aspera.SDKDir()); err != nil {
+		return
+	}
+	return
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	sdk "github.com/IBM-Cloud/ibm-cloud-cli-sdk/bluemix"
+	"github.com/IBM-Cloud/ibm-cloud-cli-sdk/common/file_helpers"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
 	"github.com/IBM/ibm-cos-sdk-go/service/s3"
 	"github.com/IBM/ibmcloud-cos-cli/aspera"
@@ -39,6 +40,13 @@ func AsperaUpload(c *cli.Context) (err error) {
 	var cosContext *utils.CosContext
 	if cosContext, err = GetCosContext(c); err != nil {
 		return
+	}
+
+	if !file_helpers.FileExists(aspera.TransferdBinPath()) {
+		cosContext.UI.Warn("Aspera Transferd binary not found. Downloading...")
+		if err = DownloadSDK(cosContext); err != nil {
+			return
+		}
 	}
 
 	// Build GetObjectInput

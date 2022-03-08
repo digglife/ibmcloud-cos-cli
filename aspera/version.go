@@ -11,11 +11,11 @@ const (
 	prefix  = "https://download.asperasoft.com/download/sw/sdk/transfer"
 )
 
-func GetSDKDownloadURL() (string, error) {
+func GetSDKDownloadURL() (url string, platform string, err error) {
 	return getSDKDownloadURL(runtime.GOOS, runtime.GOARCH)
 }
 
-func getSDKDownloadURL(os, arch string) (string, error) {
+func getSDKDownloadURL(os, arch string) (url string, platform string, err error) {
 	platforms := map[string][]string{
 		"darwin":  {"amd64"},
 		"linux":   {"amd64", "ppc64le", "s390x"},
@@ -34,10 +34,10 @@ func getSDKDownloadURL(os, arch string) (string, error) {
 				if os == "windows" {
 					ext = "zip"
 				}
-				return fmt.Sprintf("%s/%s/%s-%s-%s.%s", prefix, version, os, arch, commit, ext), nil
+				return fmt.Sprintf("%s/%s/%s-%s-%s.%s", prefix, version, os, arch, commit, ext), fmt.Sprintf("%s-%s", os, arch), nil
 			}
 		}
 	}
-	return "", fmt.Errorf("unsupported platform: %s-%s", os, arch)
+	return "", "", fmt.Errorf("unsupported platform: %s-%s", os, arch)
 
 }
