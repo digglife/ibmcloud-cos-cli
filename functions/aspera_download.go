@@ -3,12 +3,14 @@ package functions
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 
 	sdk "github.com/IBM-Cloud/ibm-cloud-cli-sdk/bluemix"
+	"github.com/IBM-Cloud/ibm-cloud-cli-sdk/common/downloader"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
 	"github.com/IBM/ibm-cos-sdk-go/service/s3"
 	"github.com/IBM/ibmcloud-cos-cli/aspera"
@@ -164,4 +166,26 @@ func GetObjectSize(s *s3.S3, input *s3.GetObjectInput) (size int64, err error) {
 	}
 	size = aws.Int64Value(output.ContentLength)
 	return
+}
+
+func DownloadSDK(c *cli.Context) (err error) {
+	downloadURL, err := aspera.GetSDKDownloadURL()
+	if err != nil {
+		return
+	}
+
+	tempDir, err := ioutil.CreatetempDir()
+	if err != nil {
+		return fmt.Errorf("unable to create temp directory for downloading Aspera SDK: %s", err)
+	}
+	SDKDownloader := downloader.New(tempDir)
+	defer SDKDownloader.RemoveDir()
+
+	dstPath, _, err := SDKDownloader.Download(downloadURL)
+	if err != nil {
+		return fmt.Errorf("unable to download Aspera SDK: %s", err)
+	}
+
+	
+
 }
