@@ -1,0 +1,53 @@
+#!/bin/bash
+
+set -e
+
+ROOT_DIR=$(cd $(dirname $(dirname $0)) && pwd)
+ASPERA_VERSION_FILE=${ROOT_DIR}/aspera/version.go
+SDK_PATH="${ROOT_DIR}/aspera/transfersdk"
+
+# use [[:space:]] here instead of \s for compatibility with BSD sed on macOS
+version=$(sed -En 's/.*version[[:space:]]+=[[:space:]]+"([^"]+)"/\1/p' "${ASPERA_VERSION_FILE}")
+commit=$(sed -En 's/.*commit[[:space:]]+=[[:space:]]+"([^"]+)"/\1/p' "${ASPERA_VERSION_FILE}")
+prefix=$(sed -En 's/.*prefix[[:space:]]+=[[:space:]]+"([^"]+)"/\1/p' "${ASPERA_VERSION_FILE}")
+
+fix_bug(){
+    local proto_file=$1
+    # repeated Path is supposed to be an array
+    sed -E -i.bak 's/repeated Path path /repeated Path paths /; s/ibm.com\/(aspera\/transfersdk)/\1/;' "${proto_file}"
+}
+
+is_sdk_exists() {
+    [ -f "${SDK_PATH}/transfer.pb.go" ] && [ -f "${SDK_PATH}/.version" ] \
+    && [ "$(cat ${SDK_PATH}/.version)" == "${version}" ]
+}
+
+is_sdk_exists && echo "TransferSDK exists and is up-to-date" && exit 0
+
+if ! command -v protoc >/dev/null 2>&1;then
+    echo "Please install protoc: http://google.github.io/proto-lens/installing-protoc.html"
+    echo 1
+fi
+
+# .proto file is platform independent,
+# so it's ok to use the osx version for any platform.
+sdk_name="osx-amd64"
+sdk_pkg="${sdk_name}-${commit}.tar.gz"
+
+tmpdir=$(mktemp -d)
+cleanup(){
+    rm -rf "${tmpdir}"
+}
+
+echo "Downloading ${prefix}/${version}/${sdk_pkg} to ${tmpdir}"
+curl --fail "${prefix}/${version}/${sdk_pkg}" -o "${tmpdir}/${sdk_pkg}"
+tar -xf "${tmpdir}/${sdk_pkg}" -C "${tmpdir}"
+
+echo "proto file: ${tmpdir}/${sdk_name}/connectors/transfer.proto"
+fix_bug "${tmpdir}/${sdk_name}/connectors/transfer.proto"
+protoc --go_out="${ROOT_DIR}" --go-grpc_out="${ROOT_DIR}" \
+    --proto_path="${tmpdir}/${sdk_name}/connectors" \
+    "${tmpdir}/${sdk_name}/connectors/transfer.proto"
+echo "$version" > "${SDK_PATH}/.version"
+
+trap cleanup EXIT
