@@ -20,6 +20,7 @@ import (
 	"github.com/IBM/ibmcloud-cos-cli/config/fields"
 	"github.com/IBM/ibmcloud-cos-cli/config/flags"
 	"github.com/IBM/ibmcloud-cos-cli/errors"
+	"github.com/IBM/ibmcloud-cos-cli/render"
 	"github.com/IBM/ibmcloud-cos-cli/utils"
 	"github.com/urfave/cli"
 )
@@ -132,6 +133,11 @@ func AsperaDownload(c *cli.Context) (err error) {
 	}
 
 	keepFile = true
+
+	output := &render.DownloadOutput{
+		TotalBytes: size,
+	}
+	err = cosContext.GetDisplay(c.String(flags.Output), c.Bool(flags.JSON)).Display(input, output, nil)
 
 	return
 }

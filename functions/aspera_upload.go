@@ -11,6 +11,7 @@ import (
 	"github.com/IBM-Cloud/ibm-cloud-cli-sdk/common/file_helpers"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
 	"github.com/IBM/ibm-cos-sdk-go/service/s3"
+	"github.com/IBM/ibm-cos-sdk-go/service/s3/s3manager"
 	"github.com/IBM/ibmcloud-cos-cli/aspera"
 	"github.com/IBM/ibmcloud-cos-cli/config/fields"
 	"github.com/IBM/ibmcloud-cos-cli/config/flags"
@@ -50,7 +51,7 @@ func AsperaUpload(c *cli.Context) (err error) {
 	}
 
 	// Build GetObjectInput
-	input := new(s3.GetObjectInput)
+	input := new(s3manager.UploadInput)
 
 	// Required parameters for GetObjectInput
 	mandatory := map[string]string{
@@ -105,6 +106,11 @@ func AsperaUpload(c *cli.Context) (err error) {
 	if err = asp.Upload(ctx, transferInput); err != nil {
 		return
 	}
+
+	// UploadOutput is actually omitted in PrintOutput
+	// refer to render/text.go for details.
+	output := &s3manager.UploadOutput{}
+	err = cosContext.GetDisplay(c.String(flags.Output), c.Bool(flags.JSON)).Display(input, output, nil)
 
 	return
 }
