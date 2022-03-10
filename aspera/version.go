@@ -12,10 +12,15 @@ const (
 )
 
 func GetSDKDownloadURL() (url string, platform string, err error) {
-	return getSDKDownloadURL(runtime.GOOS, runtime.GOARCH)
+	platform, ext, err := GetSDKAttributes(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return
+	}
+	url = fmt.Sprintf("%s/%s/%s-%s.%s", prefix, version, platform, commit, ext)
+	return
 }
 
-func getSDKDownloadURL(os, arch string) (url string, platform string, err error) {
+func GetSDKAttributes(os, arch string) (platform string, ext string, err error) {
 	platforms := map[string][]string{
 		"darwin":  {"amd64"},
 		"linux":   {"amd64", "ppc64le", "s390x"},
@@ -23,7 +28,7 @@ func getSDKDownloadURL(os, arch string) (url string, platform string, err error)
 		"aix":     {"ppc64"},
 	}
 
-	ext := "tar.gz"
+	ext = "tar.gz"
 
 	if archs, ok := platforms[os]; ok {
 		for _, a := range archs {
@@ -34,7 +39,7 @@ func getSDKDownloadURL(os, arch string) (url string, platform string, err error)
 				if os == "windows" {
 					ext = "zip"
 				}
-				return fmt.Sprintf("%s/%s/%s-%s-%s.%s", prefix, version, os, arch, commit, ext), fmt.Sprintf("%s-%s", os, arch), nil
+				return fmt.Sprintf("%s-%s", os, arch), ext, nil
 			}
 		}
 	}
