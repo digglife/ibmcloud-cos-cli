@@ -99,7 +99,7 @@ func (a *Agent) GetBucketAspera(bucket string) (*BucketAsperaInfo, error) {
 	opGetBucketAspera := &request.Operation{
 		Name:       "GetBucketAspera",
 		HTTPMethod: "GET",
-		HTTPPath:   fmt.Sprintf("/%s?faspConnectionInfo", "backint"),
+		HTTPPath:   fmt.Sprintf("/%s?faspConnectionInfo", bucket),
 	}
 
 	output := &BucketAsperaInfo{}
