@@ -29,13 +29,9 @@ func TestIsTransferdRunning(t *testing.T) {
 
 	dummySession, _ := session.NewSession(new(aws.Config))
 	s3srv := s3.New(dummySession)
-	agent := Agent{mockClient, s3srv, "apikey"}
+	a := agent{mockClient, s3srv, "apikey"}
 
-	assert.True(t, agent.IsTransferdRunning())
-}
-
-func TestStartSever(t *testing.T) {
-
+	assert.True(t, a.IsTransferdRunning())
 }
 
 func TestSDKDir(t *testing.T) {
@@ -82,9 +78,9 @@ func TestGetBucketAspera(t *testing.T) {
 
 	transferdClient := new(mocks.TransferServiceClient)
 	s3svc := &s3.S3{Client: s}
-	agent := Agent{transferdClient, s3svc, "apikey"}
+	a := agent{transferdClient, s3svc, "apikey"}
 
-	info, _ := agent.GetBucketAspera("a-bucket")
+	info, _ := a.GetBucketAspera("a-bucket")
 	assert.Equal(t, info, &BucketAsperaInfo{
 		AccessKey:   &AccessKey{Id: aws.String("id"), Secret: aws.String("secret")},
 		ATSEndpoint: aws.String("https://zshengli.aspera.io:443"),
@@ -106,7 +102,7 @@ func TestGetAsperaTransferSpecV2(t *testing.T) {
 	s3svc := &s3.S3{Client: s}
 
 	transferdClient := new(mocks.TransferServiceClient)
-	a := Agent{transferdClient, s3svc, "apikey"}
+	a := agent{transferdClient, s3svc, "apikey"}
 
 	AsperaEndpoint := `{
 		"AccessKey":

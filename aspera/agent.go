@@ -28,6 +28,18 @@ const (
 	defaultPort    = "55002"
 )
 
+type Agent interface {
+	Download(ctx context.Context, input *TransferInput) error
+	Upload(ctx context.Context, input *TransferInput) error
+}
+
+type TransferInput struct {
+	Bucket string
+	Key    string
+	Path   string
+	Sub    Subscriber
+}
+
 type AccessKey struct {
 	_      struct{} `type:"structure"`
 	Id     *string  `type:"string"`
@@ -39,22 +51,27 @@ type BucketAsperaInfo struct {
 	ATSEndpoint *string    `type:"string"`
 }
 
-type Agent struct {
+type agent struct {
 	sdk.TransferServiceClient
-	s3     *s3.S3
-	apikey string
+	S3     *s3.S3
+	APIKey string
 }
 
-func New(s3 *s3.S3, apikey string) (*Agent, error) {
-	optInsecure := grpc.WithTransportCredentials(insecure.NewCredentials())
-	target := fmt.Sprintf("%s:%s", defaultAddress, defaultPort)
-	cc, err := grpc.Dial(target, optInsecure)
+func New(s3 *s3.S3, apikey string) (a Agent, err error) {
+	cc, err := defaultConnection()
 	if err != nil {
-		return nil, err
+		return
 	}
 	client := sdk.NewTransferServiceClient(cc)
+	a = &agent{client, s3, apikey}
+	return
+}
 
-	return &Agent{client, s3, apikey}, nil
+func defaultConnection() (cc *grpc.ClientConn, err error) {
+	optInsecure := grpc.WithTransportCredentials(insecure.NewCredentials())
+	target := fmt.Sprintf("%s:%s", defaultAddress, defaultPort)
+	cc, err = grpc.Dial(target, optInsecure)
+	return
 }
 
 func SDKDir() string {
@@ -76,7 +93,7 @@ func TransferdBinPath() string {
 	return path.Join(SDKDir(), "bin", daemonName)
 }
 
-func (a *Agent) StartServer(ctx context.Context) error {
+func (a *agent) StartServer(ctx context.Context) error {
 	if a.IsTransferdRunning() {
 		return nil
 	}
@@ -88,14 +105,14 @@ func (a *Agent) StartServer(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) IsTransferdRunning() bool {
+func (a *agent) IsTransferdRunning() bool {
 	if _, err := a.GetInfo(context.Background(), &sdk.InstanceInfoRequest{}); err != nil {
 		return false
 	}
 	return true
 }
 
-func (a *Agent) GetBucketAspera(bucket string) (*BucketAsperaInfo, error) {
+func (a *agent) GetBucketAspera(bucket string) (*BucketAsperaInfo, error) {
 	opGetBucketAspera := &request.Operation{
 		Name:       "GetBucketAspera",
 		HTTPMethod: "GET",
@@ -103,25 +120,25 @@ func (a *Agent) GetBucketAspera(bucket string) (*BucketAsperaInfo, error) {
 	}
 
 	output := &BucketAsperaInfo{}
-	req := a.s3.NewRequest(opGetBucketAspera, nil, output)
+	req := a.S3.NewRequest(opGetBucketAspera, nil, output)
 	if err := req.Send(); err != nil {
 		return nil, err
 	}
 	return output, nil
 }
 
-func (a *Agent) GetICOSSpec(bucket string) *sdk.ICOSSpec {
-	creds, _ := a.s3.Config.Credentials.Get()
+func (a *agent) GetICOSSpec(bucket string) *sdk.ICOSSpec {
+	creds, _ := a.S3.Config.Credentials.Get()
 	ICOSSpec := &sdk.ICOSSpec{
-		ApiKey:               a.apikey,
+		ApiKey:               a.APIKey,
 		Bucket:               bucket,
 		IbmServiceInstanceId: creds.ServiceInstanceID,
-		IbmServiceEndpoint:   a.s3.Endpoint,
+		IbmServiceEndpoint:   a.S3.Endpoint,
 	}
 	return ICOSSpec
 }
 
-func (a *Agent) GetAsperaTransferSpecV2(action string, bucket string, paths []*sdk.Path) (spec string, err error) {
+func (a *agent) GetAsperaTransferSpecV2(action string, bucket string, paths []*sdk.Path) (spec string, err error) {
 
 	ICOSSpec := a.GetICOSSpec(bucket)
 	direction := "recv"
@@ -158,12 +175,12 @@ func (a *Agent) GetAsperaTransferSpecV2(action string, bucket string, paths []*s
 	return
 }
 
-func (a *Agent) GetAsperaTransferSpecV1(action string, bucket string, paths []*sdk.Path) (spec string, err error) {
+func (a *agent) GetAsperaTransferSpecV1(action string, bucket string, paths []*sdk.Path) (spec string, err error) {
 	meta, err := a.GetBucketAspera(bucket)
 	if err != nil {
 		return "", fmt.Errorf("unable to get aspera metadata: %s", err)
 	}
-	creds, err := a.s3.Config.Credentials.Get()
+	creds, err := a.S3.Config.Credentials.Get()
 	if err != nil {
 		return "", fmt.Errorf("unable to get aws credentials: %s", err)
 	}
@@ -250,18 +267,11 @@ func (a *Agent) GetAsperaTransferSpecV1(action string, bucket string, paths []*s
 	return
 }
 
-type TransferInput struct {
-	Bucket string
-	Key    string
-	Path   string
-	Sub    Subscriber
-}
-
-func (a *Agent) Download(ctx context.Context, input *TransferInput) (err error) {
+func (a *agent) Download(ctx context.Context, input *TransferInput) (err error) {
 	return a.doTransfer(ctx, "download", input)
 }
 
-func (a *Agent) Upload(ctx context.Context, input *TransferInput) (err error) {
+func (a *agent) Upload(ctx context.Context, input *TransferInput) (err error) {
 	// When uploading directory, the local path can't be relative path.
 	// Transferd will raise no such file or directory error.
 	// This should be a bug of transferd because there is no such problem with faspmanager2 backend.
@@ -272,7 +282,7 @@ func (a *Agent) Upload(ctx context.Context, input *TransferInput) (err error) {
 	return a.doTransfer(ctx, "upload", input)
 }
 
-func (a *Agent) doTransfer(ctx context.Context, action string, input *TransferInput) (err error) {
+func (a *agent) doTransfer(ctx context.Context, action string, input *TransferInput) (err error) {
 	rpcCtx := context.TODO()
 	if err = a.StartServer(rpcCtx); err != nil {
 		return
