@@ -5,6 +5,7 @@ set -e
 ROOT_DIR=$(cd $(dirname $(dirname $0)) && pwd)
 ASPERA_VERSION_FILE=${ROOT_DIR}/aspera/version.go
 SDK_PATH="${ROOT_DIR}/aspera/transfersdk"
+GOPATH="$(go env GOPATH)"
 
 # use [[:space:]] here instead of \s for compatibility with BSD sed on macOS
 version=$(sed -En 's/.*version[[:space:]]+=[[:space:]]+"([^"]+)"/\1/p' "${ASPERA_VERSION_FILE}")
@@ -17,16 +18,31 @@ fix_bug(){
     sed -E -i.bak 's/repeated Path path /repeated Path paths /; s/ibm.com\/(aspera\/transfersdk)/\1/;' "${proto_file}"
 }
 
-is_sdk_exists() {
+sdk_exists() {
     [ -f "${SDK_PATH}/transfer.pb.go" ] && [ -f "${SDK_PATH}/.version" ] \
     && [ "$(cat ${SDK_PATH}/.version)" == "${version}" ]
 }
 
-is_sdk_exists && echo "TransferSDK exists and is up-to-date" && exit 0
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
 
-if ! command -v protoc >/dev/null 2>&1;then
+sdk_exists && echo "TransferSDK exists and is up-to-date" && exit 0
+
+if ! (command_exists protoc);then
     echo "Please install protoc: http://google.github.io/proto-lens/installing-protoc.html"
-    echo 1
+    exit 1
+fi
+
+if ! (command_exists protoc-gen-go || command_exists protoc-gen-go-grpc);then
+    # go get does not install binary since 1.16
+    go get -u google.golang.org/protobuf/cmd/protoc-gen-go
+    go install google.golang.org/protobuf/cmd/protoc-gen-go
+
+    go get -u google.golang.org/grpc/cmd/protoc-gen-go-grpc
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
+
+    export PATH=$PATH:${GOPATH}/bin
 fi
 
 # .proto file is platform independent,
